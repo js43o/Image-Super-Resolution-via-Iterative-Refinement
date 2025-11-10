@@ -130,3 +130,11 @@ dmypy.json
 .pyre/
 
 *.lmdb
+
+results/*
+*.png
+*.jpg
+*.pdf
+*.pth
+*.pt
+*.safetensors
