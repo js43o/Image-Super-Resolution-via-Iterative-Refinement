@@ -130,3 +130,13 @@ dmypy.json
 .pyre/
 
 *.lmdb
+
+results/
+experiments/
+dataset/
+config/
+work_dirs/
+tb_logger/
+*.safetensors
+*.pt
+*.pth
