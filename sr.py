@@ -95,6 +95,7 @@ if __name__ == "__main__":
     if opt["phase"] == "train":
         while current_step < n_iter:
             current_epoch += 1
+            print("🍊 step = ", current_step)
             for _, train_data in enumerate(train_loader):
                 current_step += 1
                 if current_step > n_iter:
@@ -130,14 +131,6 @@ if __name__ == "__main__":
                         diffusion.feed_data(val_data)
                         diffusion.test(continous=False)
                         visuals = diffusion.get_current_visuals()
-
-                        print(
-                            "🔥",
-                            visuals["SR"].shape,
-                            visuals["HR"].shape,
-                            visuals["LR"].shape,
-                            visuals["INF"].shape,
-                        )
 
                         sr_img = Metrics.tensor2img(visuals["SR"])  # uint8
                         hr_img = Metrics.tensor2img(visuals["HR"][0])  # uint8

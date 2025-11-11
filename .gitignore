@@ -131,7 +131,7 @@ dmypy.json
 
 *.lmdb
 
-results/
+results*/
 experiments/
 dataset/
 config/

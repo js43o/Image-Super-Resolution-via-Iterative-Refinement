@@ -41,6 +41,7 @@ if __name__ == "__main__":
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
 
+    """
     Logger.setup_logger(
         None, opt["path"]["log"], "train", level=logging.INFO, screen=True
     )
@@ -54,12 +55,13 @@ if __name__ == "__main__":
         wandb_logger = WandbLogger(opt)
     else:
         wandb_logger = None
-
+    """
     # dataset
     for phase, dataset_opt in opt["datasets"].items():
         if phase == "val":
             val_set = Data.create_dataset(dataset_opt, phase)
             val_loader = Data.create_dataloader(val_set, dataset_opt, phase)
+    """
     logger.info("Initial Dataset Finished")
 
     # model
@@ -73,56 +75,45 @@ if __name__ == "__main__":
     logger.info("Begin Model Inference.")
     current_step = 0
     current_epoch = 0
-    idx = 0
+    """
 
     result_path = "{}".format(opt["path"]["results"])
     os.makedirs(result_path, exist_ok=True)
-    for _, val_data in enumerate(val_loader):
-        idx += 1
-        diffusion.feed_data(val_data)
-        diffusion.test(continous=True)
-        visuals = diffusion.get_current_visuals(need_LR=False)
+    os.makedirs(os.path.join(result_path, "lr"), exist_ok=True)
+    os.makedirs(os.path.join(result_path, "sr"), exist_ok=True)
+    os.makedirs(os.path.join(result_path, "hr"), exist_ok=True)
 
-        hr_img = Metrics.tensor2img(visuals["HR"])  # uint8
-        fake_img = Metrics.tensor2img(visuals["INF"])  # uint8
+    for batch_idx, val_data in enumerate(val_loader):
+        # diffusion.feed_data(val_data)
+        # diffusion.test(continous=True)
+        # visuals = diffusion.get_current_visuals(need_LR=False)
+        # print("🔥 %s" % batch_idx, visuals["SR"].shape)
+        print("🥐", val_data.keys())
+        for k, i in val_data.items():
+            print("🥑 %s, %s" % (k, i.shape))
 
-        sr_img_mode = "single"
-        if sr_img_mode == "single":
-            # single img series
-            sr_img = visuals["SR"]  # uint8
-            print(
-                "🔥",
-                visuals["HR"].shape,
-                sr_img.shape,
-            )
-            sample_num = sr_img.shape[0]
-            for iter in range(0, sample_num):
-                Metrics.save_img(
-                    Metrics.tensor2img(sr_img[iter]),
-                    "{}/{}_{}_sr_{}.png".format(result_path, current_step, idx, iter),
-                )
-        else:
-            # grid img
-            sr_img = Metrics.tensor2img(visuals["SR"])  # uint8
+        bs = val_data["HR"].shape[0]
+
+        for item_idx in range(bs):
+            lr = Metrics.tensor2img(val_data["LR"][item_idx])
+            sr = Metrics.tensor2img(val_data["SR"][-(bs - item_idx)])
+            hr = Metrics.tensor2img(val_data["HR"][item_idx])
+
             Metrics.save_img(
-                sr_img, "{}/{}_{}_sr_process.png".format(result_path, current_step, idx)
+                lr,
+                "{}/lr/{}_{}_{}.png".format(
+                    result_path, opt["part"], batch_idx, item_idx
+                ),
             )
             Metrics.save_img(
-                Metrics.tensor2img(visuals["SR"][-1]),
-                "{}/{}_{}_sr.png".format(result_path, current_step, idx),
+                sr,
+                "{}/sr/{}_{}_{}.png".format(
+                    result_path, opt["part"], batch_idx, item_idx
+                ),
             )
-
-        Metrics.save_img(
-            hr_img, "{}/{}_{}_hr.png".format(result_path, current_step, idx)
-        )
-        Metrics.save_img(
-            fake_img, "{}/{}_{}_inf.png".format(result_path, current_step, idx)
-        )
-
-        if wandb_logger and opt["log_infer"]:
-            wandb_logger.log_eval_data(
-                fake_img, Metrics.tensor2img(visuals["SR"][-1]), hr_img
+            Metrics.save_img(
+                hr,
+                "{}/hr/{}_{}_{}.png".format(
+                    result_path, opt["part"], batch_idx, item_idx
+                ),
             )
-
-    if wandb_logger and opt["log_infer"]:
-        wandb_logger.log_eval_table(commit=True)
