@@ -14,6 +14,7 @@ def default(val, d):
         return val
     return d() if isfunction(d) else d
 
+
 # PositionalEncoding Source： https://github.com/lmnt-com/wavegrad/blob/master/src/wavegrad/model.py
 class PositionalEncoding(nn.Module):
     def __init__(self, dim):
@@ -22,31 +23,47 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, noise_level):
         count = self.dim // 2
-        step = torch.arange(count, dtype=noise_level.dtype,
-                            device=noise_level.device) / count
-        encoding = noise_level.unsqueeze(
-            1) * torch.exp(-math.log(1e4) * step.unsqueeze(0))
-        encoding = torch.cat(
-            [torch.sin(encoding), torch.cos(encoding)], dim=-1)
+        step = (
+            torch.arange(count, dtype=noise_level.dtype, device=noise_level.device)
+            / count
+        )
+        encoding = noise_level.unsqueeze(1) * torch.exp(
+            -math.log(1e4) * step.unsqueeze(0)
+        )
+        encoding = torch.cat([torch.sin(encoding), torch.cos(encoding)], dim=-1)
         return encoding
 
 
 class FeatureWiseAffine(nn.Module):
-    def __init__(self, in_channels, out_channels, use_affine_level=False):
+    def __init__(
+        self, in_channels, out_channels, use_affine_level=False, with_id_embed=False
+    ):
         super(FeatureWiseAffine, self).__init__()
         self.use_affine_level = use_affine_level
         self.noise_func = nn.Sequential(
-            nn.Linear(in_channels, out_channels*(1+self.use_affine_level))
+            nn.Linear(in_channels, out_channels * (1 + self.use_affine_level))
         )
+        if with_id_embed:
+            self.noise_func_id = nn.Sequential(
+                nn.Linear(in_channels, out_channels * (1 + self.use_affine_level))
+            )
 
-    def forward(self, x, noise_embed):
+    def forward(self, x, noise_embed, id_embed=None):
         batch = x.shape[0]
         if self.use_affine_level:
-            gamma, beta = self.noise_func(noise_embed).view(
-                batch, -1, 1, 1).chunk(2, dim=1)
+            gamma, beta = (
+                self.noise_func(noise_embed).view(batch, -1, 1, 1).chunk(2, dim=1)
+            )
             x = (1 + gamma) * x + beta
+            if self.noise_func_id is not None and id_embed is not None:
+                gamma_id, beta_id = (
+                    self.noise_func_id(id_embed).view(batch, -1, 1, 1).chunk(2, dim=1)
+                )
+            x = (1 + gamma_id) * x + beta_id
         else:
             x = x + self.noise_func(noise_embed).view(batch, -1, 1, 1)
+            if self.noise_func_id is not None and id_embed is not None:
+                x = x + self.noise_func_id(id_embed).view(batch, -1, 1, 1)
         return x
 
 
@@ -84,7 +101,7 @@ class Block(nn.Module):
             nn.GroupNorm(groups, dim),
             Swish(),
             nn.Dropout(dropout) if dropout != 0 else nn.Identity(),
-            nn.Conv2d(dim, dim_out, 3, padding=1)
+            nn.Conv2d(dim, dim_out, 3, padding=1),
         )
 
     def forward(self, x):
@@ -92,20 +109,29 @@ class Block(nn.Module):
 
 
 class ResnetBlock(nn.Module):
-    def __init__(self, dim, dim_out, noise_level_emb_dim=None, dropout=0, use_affine_level=False, norm_groups=32):
+    def __init__(
+        self,
+        dim,
+        dim_out,
+        noise_level_emb_dim=None,
+        dropout=0,
+        use_affine_level=False,
+        norm_groups=32,
+        with_id_embed=False,
+    ):
         super().__init__()
         self.noise_func = FeatureWiseAffine(
-            noise_level_emb_dim, dim_out, use_affine_level)
+            noise_level_emb_dim, dim_out, use_affine_level, with_id_embed=with_id_embed
+        )
 
         self.block1 = Block(dim, dim_out, groups=norm_groups)
         self.block2 = Block(dim_out, dim_out, groups=norm_groups, dropout=dropout)
-        self.res_conv = nn.Conv2d(
-            dim, dim_out, 1) if dim != dim_out else nn.Identity()
+        self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
-    def forward(self, x, time_emb):
+    def forward(self, x, time_emb, id_embed=None):
         b, c, h, w = x.shape
         h = self.block1(x)
-        h = self.noise_func(h, time_emb)
+        h = self.noise_func(h, time_emb, id_embed)
         h = self.block2(h)
         return h + self.res_conv(x)
 
@@ -143,17 +169,33 @@ class SelfAttention(nn.Module):
 
 
 class ResnetBlocWithAttn(nn.Module):
-    def __init__(self, dim, dim_out, *, noise_level_emb_dim=None, norm_groups=32, dropout=0, with_attn=False):
+    def __init__(
+        self,
+        dim,
+        dim_out,
+        *,
+        noise_level_emb_dim=None,
+        norm_groups=32,
+        dropout=0,
+        with_attn=False,
+        with_id_embed=False,
+    ):
         super().__init__()
         self.with_attn = with_attn
         self.res_block = ResnetBlock(
-            dim, dim_out, noise_level_emb_dim, norm_groups=norm_groups, dropout=dropout)
+            dim,
+            dim_out,
+            noise_level_emb_dim,
+            norm_groups=norm_groups,
+            dropout=dropout,
+            with_id_embed=with_id_embed,
+        )
         if with_attn:
             self.attn = SelfAttention(dim_out, norm_groups=norm_groups)
 
-    def forward(self, x, time_emb):
-        x = self.res_block(x, time_emb)
-        if(self.with_attn):
+    def forward(self, x, time_emb, id_embed=None):
+        x = self.res_block(x, time_emb, id_embed)
+        if self.with_attn:
             x = self.attn(x)
         return x
 
@@ -170,9 +212,10 @@ class UNet(nn.Module):
         res_blocks=3,
         dropout=0,
         with_noise_level_emb=True,
-        image_size=128
+        image_size=128,
     ):
         super().__init__()
+        id_embed_dim = 512
 
         if with_noise_level_emb:
             noise_level_channel = inner_channel
@@ -180,79 +223,127 @@ class UNet(nn.Module):
                 PositionalEncoding(inner_channel),
                 nn.Linear(inner_channel, inner_channel * 4),
                 Swish(),
-                nn.Linear(inner_channel * 4, inner_channel)
+                nn.Linear(inner_channel * 4, inner_channel),
+            )
+            self.noise_level_mlp_id = nn.Sequential(
+                # no additional encoding, but only unsqueeze(1)
+                nn.Linear(id_embed_dim, inner_channel * 4),
+                Swish(),
+                nn.Linear(inner_channel * 4, inner_channel),
             )
         else:
             noise_level_channel = None
             self.noise_level_mlp = None
+            self.noise_level_mlp_id = None
 
         num_mults = len(channel_mults)
         pre_channel = inner_channel
         feat_channels = [pre_channel]
         now_res = image_size
-        downs = [nn.Conv2d(in_channel, inner_channel,
-                           kernel_size=3, padding=1)]
+        downs = [nn.Conv2d(in_channel, inner_channel, kernel_size=3, padding=1)]
         for ind in range(num_mults):
-            is_last = (ind == num_mults - 1)
-            use_attn = (now_res in attn_res)
+            is_last = ind == num_mults - 1
+            use_attn = now_res in attn_res
             channel_mult = inner_channel * channel_mults[ind]
             for _ in range(0, res_blocks):
-                downs.append(ResnetBlocWithAttn(
-                    pre_channel, channel_mult, noise_level_emb_dim=noise_level_channel, norm_groups=norm_groups, dropout=dropout, with_attn=use_attn))
+                downs.append(
+                    ResnetBlocWithAttn(
+                        pre_channel,
+                        channel_mult,
+                        noise_level_emb_dim=noise_level_channel,
+                        norm_groups=norm_groups,
+                        dropout=dropout,
+                        with_attn=use_attn,
+                        with_id_embed=True,
+                    )
+                )
                 feat_channels.append(channel_mult)
                 pre_channel = channel_mult
             if not is_last:
                 downs.append(Downsample(pre_channel))
                 feat_channels.append(pre_channel)
-                now_res = now_res//2
+                now_res = now_res // 2
         self.downs = nn.ModuleList(downs)
 
-        self.mid = nn.ModuleList([
-            ResnetBlocWithAttn(pre_channel, pre_channel, noise_level_emb_dim=noise_level_channel, norm_groups=norm_groups,
-                               dropout=dropout, with_attn=True),
-            ResnetBlocWithAttn(pre_channel, pre_channel, noise_level_emb_dim=noise_level_channel, norm_groups=norm_groups,
-                               dropout=dropout, with_attn=False)
-        ])
+        self.mid = nn.ModuleList(
+            [
+                ResnetBlocWithAttn(
+                    pre_channel,
+                    pre_channel,
+                    noise_level_emb_dim=noise_level_channel,
+                    norm_groups=norm_groups,
+                    dropout=dropout,
+                    with_attn=True,
+                    with_id_embed=True,
+                ),
+                ResnetBlocWithAttn(
+                    pre_channel,
+                    pre_channel,
+                    noise_level_emb_dim=noise_level_channel,
+                    norm_groups=norm_groups,
+                    dropout=dropout,
+                    with_attn=False,
+                    with_id_embed=True,
+                ),
+            ]
+        )
 
         ups = []
         for ind in reversed(range(num_mults)):
-            is_last = (ind < 1)
-            use_attn = (now_res in attn_res)
+            is_last = ind < 1
+            use_attn = now_res in attn_res
             channel_mult = inner_channel * channel_mults[ind]
-            for _ in range(0, res_blocks+1):
-                ups.append(ResnetBlocWithAttn(
-                    pre_channel+feat_channels.pop(), channel_mult, noise_level_emb_dim=noise_level_channel, norm_groups=norm_groups,
-                        dropout=dropout, with_attn=use_attn))
+            for _ in range(0, res_blocks + 1):
+                ups.append(
+                    ResnetBlocWithAttn(
+                        pre_channel + feat_channels.pop(),
+                        channel_mult,
+                        noise_level_emb_dim=noise_level_channel,
+                        norm_groups=norm_groups,
+                        dropout=dropout,
+                        with_attn=use_attn,
+                        with_id_embed=True,
+                    )
+                )
                 pre_channel = channel_mult
             if not is_last:
                 ups.append(Upsample(pre_channel))
-                now_res = now_res*2
+                now_res = now_res * 2
 
         self.ups = nn.ModuleList(ups)
 
-        self.final_conv = Block(pre_channel, default(out_channel, in_channel), groups=norm_groups)
+        self.final_conv = Block(
+            pre_channel, default(out_channel, in_channel), groups=norm_groups
+        )
 
-    def forward(self, x, time):
-        t = self.noise_level_mlp(time) if exists(
-            self.noise_level_mlp) else None
+    def forward(self, x, time, id_embed=None):
+        t = self.noise_level_mlp(time) if exists(self.noise_level_mlp) else None
+
+        if id_embed is not None:
+            id_embed = id_embed.unsqueeze(1)
+            id_embed = (
+                self.noise_level_mlp_id(id_embed)
+                if exists(self.noise_level_mlp_id)
+                else None
+            )
 
         feats = []
         for layer in self.downs:
             if isinstance(layer, ResnetBlocWithAttn):
-                x = layer(x, t)
+                x = layer(x, t, id_embed)
             else:
                 x = layer(x)
             feats.append(x)
 
         for layer in self.mid:
             if isinstance(layer, ResnetBlocWithAttn):
-                x = layer(x, t)
+                x = layer(x, t, id_embed)
             else:
                 x = layer(x)
 
         for layer in self.ups:
             if isinstance(layer, ResnetBlocWithAttn):
-                x = layer(torch.cat((x, feats.pop()), dim=1), t)
+                x = layer(torch.cat((x, feats.pop()), dim=1), t, id_embed)
             else:
                 x = layer(x)
 

@@ -1,5 +1,5 @@
 {
-    "name": "sr_ffhq",
+    "name": "sr3_multipie_t-embed",
     "phase": "train",
     "gpu_ids": [
         0,
@@ -17,11 +17,11 @@
         "train": {
             "name": "Multi-PIE",
             "mode": "LRHR",
-            "dataroot": "./dataset/multi-pie_sr3/train",
+            "dataroot": "./dataset/multipie_sr-to-hr/train",
             "datatype": "img",
             "l_resolution": 128,
             "r_resolution": 128,
-            "batch_size": 64,
+            "batch_size": 256,
             "num_workers": 8,
             "use_shuffle": true,
             "data_len": -1
@@ -29,18 +29,19 @@
         "val": {
             "name": "Multi-PIE",
             "mode": "LRHR",
-            "dataroot": "./dataset/multi-pie_sr3/test",
+            "dataroot": "./dataset/multipie_sr-to-hr/test",
             "datatype": "img",
             "l_resolution": 128,
             "r_resolution": 128,
-            "data_len": 50
+            "batch_size": 8,
+            "data_len": 8
         }
     },
     "model": {
         "which_model_G": "sr3",
         "finetune_norm": false,
         "unet": {
-            "in_channel": 9,
+            "in_channel": 6,
             "out_channel": 3,
             "inner_channel": 64,
             "channel_multiplier": [
@@ -79,7 +80,7 @@
     "train": {
         "n_iter": 500000,
         "val_freq": 5e3,
-        "save_checkpoint_freq": 5e3,
+        "save_checkpoint_freq": 2e3,
         "print_freq": 200,
         "optimizer": {
             "type": "adam",
@@ -92,6 +93,6 @@
         }
     },
     "wandb": {
-        "project": "sr3_multipie"
+        "project": "sr3_multipie_t-embed"
     }
 }
