@@ -29,10 +29,10 @@ lpips_list = []
 niqe_list = []
 ids_list = []
 
-NAME = "e2f"
+NAME = "m2f"
 
-sr_paths = sorted(glob("results/%s/sr/*.png" % NAME))
-hr_paths = sorted(glob("results/%s/hr/*.png" % NAME))
+sr_paths = sorted(glob("results_sr-to-hr/kface/m2f/sr/*.png"))
+hr_paths = sorted(glob("results_sr-to-hr/kface/m2f/hr/*.png"))
 
 for i in range(len(sr_paths)):
     print("🔥 Processing %s of %s" % (i + 1, len(sr_paths)))
@@ -62,10 +62,13 @@ eval_result = {
     "ids": "%.3f" % (sum(ids_list) / len(ids_list)),
 }
 
-fid_score = get_fid("results/%s/sr/" % NAME, "results/%s/hr/" % NAME)
+fid_score = get_fid(
+    "results_sr-to-hr/kface/m2f/sr/",
+    "results_sr-to-hr/kface/m2f/hr/",
+)
 eval_result["fid"] = "%.2f" % fid_score
 
-with open("./results/%s/eval.txt" % NAME, "w") as f:
+with open("./eval_m2f.txt", "w") as f:
     f.write("\n".join(["%s=%s" % (k, v) for k, v in eval_result.items()]))
 
 print("🍊", "\n".join(["%s=%s" % (k, v) for k, v in eval_result.items()]))

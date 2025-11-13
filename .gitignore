@@ -140,3 +140,4 @@ tb_logger/
 *.safetensors
 *.pt
 *.pth
+eval*.txt

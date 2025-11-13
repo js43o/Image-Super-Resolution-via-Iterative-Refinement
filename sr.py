@@ -95,7 +95,6 @@ if __name__ == "__main__":
     if opt["phase"] == "train":
         while current_step < n_iter:
             current_epoch += 1
-            print("🍊 step = ", current_step)
             for _, train_data in enumerate(train_loader):
                 current_step += 1
                 if current_step > n_iter:

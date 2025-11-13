@@ -84,7 +84,7 @@ if __name__ == "__main__":
         diffusion.feed_data(val_data)
         diffusion.test(continous=True)
         visuals = diffusion.get_current_visuals(need_LR=False)
-        print("🔥 %s" % batch_idx, visuals["SR"].shape)
+        print("🔥 Part %s (%s/%s)" % (opt["part"], batch_idx, len(val_loader)))
         bs = visuals["HR"].shape[0]
 
         for item_idx in range(bs):
