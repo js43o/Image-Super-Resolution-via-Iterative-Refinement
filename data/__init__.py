@@ -40,6 +40,7 @@ def create_dataset(dataset_opt, phase):
         split=phase,
         data_len=dataset_opt["data_len"],
         need_LR=(mode == "LRHR"),
+        need_CR=dataset_opt["need_cr"],
     )
     logger = logging.getLogger("base")
     logger.info(

@@ -8,6 +8,7 @@ import core.metrics as Metrics
 from core.wandb_logger import WandbLogger
 from tensorboardX import SummaryWriter
 import os
+import numpy as np
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -15,21 +16,22 @@ if __name__ == "__main__":
         "-c",
         "--config",
         type=str,
-        default="config/sr_sr3_64_512.json",
+        default="config/sr_sr3_16_128.json",
         help="JSON file for configuration",
     )
     parser.add_argument(
         "-p",
         "--phase",
         type=str,
-        choices=["val"],
-        help="val(generation)",
-        default="val",
+        choices=["train", "val"],
+        help="Run either train(training) or val(generation)",
+        default="train",
     )
     parser.add_argument("-gpu", "--gpu_ids", type=str, default=None)
     parser.add_argument("-debug", "-d", action="store_true")
     parser.add_argument("-enable_wandb", action="store_true")
-    parser.add_argument("-log_infer", action="store_true")
+    parser.add_argument("-log_wandb_ckpt", action="store_true")
+    parser.add_argument("-log_eval", action="store_true")
 
     # parse configs
     args = parser.parse_args()
@@ -51,13 +53,22 @@ if __name__ == "__main__":
 
     # Initialize WandbLogger
     if opt["enable_wandb"]:
+        import wandb
+
         wandb_logger = WandbLogger(opt)
+        wandb.define_metric("validation/val_step")
+        wandb.define_metric("epoch")
+        wandb.define_metric("validation/*", step_metric="val_step")
+        val_step = 0
     else:
         wandb_logger = None
 
     # dataset
     for phase, dataset_opt in opt["datasets"].items():
-        if phase == "val":
+        if phase == "train" and args.phase != "val":
+            train_set = Data.create_dataset(dataset_opt, phase)
+            train_loader = Data.create_dataloader(train_set, dataset_opt, phase)
+        elif phase == "val":
             val_set = Data.create_dataset(dataset_opt, phase)
             val_loader = Data.create_dataloader(val_set, dataset_opt, phase)
     logger.info("Initial Dataset Finished")
@@ -66,46 +77,18 @@ if __name__ == "__main__":
     diffusion = Model.create_model(opt)
     logger.info("Initial Model Finished")
 
+    # Train
+    current_step = diffusion.begin_step
+    current_epoch = diffusion.begin_epoch
+    n_iter = opt["train"]["n_iter"]
+
+    if opt["path"]["resume_state"]:
+        logger.info(
+            "Resuming training from epoch: {}, iter: {}.".format(
+                current_epoch, current_step
+            )
+        )
+
     diffusion.set_new_noise_schedule(
-        opt["model"]["beta_schedule"]["val"], schedule_phase="val"
+        opt["model"]["beta_schedule"][opt["phase"]], schedule_phase=opt["phase"]
     )
-
-    logger.info("Begin Model Inference.")
-    current_step = 0
-    current_epoch = 0
-
-    result_path = "{}".format(opt["path"]["results"])
-    os.makedirs(result_path, exist_ok=True)
-    os.makedirs(os.path.join(result_path, "lr"), exist_ok=True)
-    os.makedirs(os.path.join(result_path, "sr"), exist_ok=True)
-    os.makedirs(os.path.join(result_path, "hr"), exist_ok=True)
-
-    for batch_idx, val_data in enumerate(val_loader):
-        diffusion.feed_data(val_data)
-        diffusion.test(continous=True)
-        visuals = diffusion.get_current_visuals(need_LR=False)
-        bs = visuals["HR"].shape[0]
-
-        print("🔥 (%s/%s)" % (batch_idx, len(val_loader)))
-
-        for item_idx in range(bs):
-            lr = Metrics.tensor2img(visuals["INF"][item_idx])
-            sr = Metrics.tensor2img(visuals["SR"][-(bs - item_idx)])
-            hr = Metrics.tensor2img(visuals["HR"][item_idx])
-            filename = val_data["filename"][item_idx]
-
-            Metrics.save_img(
-                lr,
-                "{}/lr/{}.png".format(result_path, filename),
-            )
-            Metrics.save_img(
-                sr,
-                "{}/sr/{}.png".format(result_path, filename),
-            )
-            Metrics.save_img(
-                hr,
-                "{}/hr/{}.png".format(result_path, filename),
-            )
-
-    if wandb_logger and opt["log_infer"]:
-        wandb_logger.log_eval_table(commit=True)

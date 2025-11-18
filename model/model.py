@@ -130,6 +130,10 @@ class DDPM(BaseModel):
         )
         logger.info(s)
 
+        p = sum(p.numel() for p in self.netG.parameters() if p.requires_grad)
+
+        print(p)
+
     def save_network(self, epoch, iter_step):
         gen_path = os.path.join(
             self.opt["path"]["checkpoint"], "I{}_E{}_gen.pth".format(iter_step, epoch)

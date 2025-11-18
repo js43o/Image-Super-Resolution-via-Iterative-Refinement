@@ -32,14 +32,14 @@ get_niqe = create_metric("niqe", device=device)
 get_fid = create_metric("fid", device=device)
 
 SR_PATH = (
-    "experiments/multipie_cross-attn_e2f_251113_201115/results/sr"
+    "results_sr-to-hr/multipie/e2f/sr"
     if args.pose_group == "e2f"
-    else "experiments/multipie_cross-attn_m2f_251113_201125/results/sr"
+    else "results_sr-to-hr/multipie/m2f/sr"
 )
 HR_PATH = (
-    "experiments/multipie_cross-attn_e2f_251113_201115/results/hr"
+    "results_sr-to-hr/multipie/e2f/hr"
     if args.pose_group == "e2f"
-    else "experiments/multipie_cross-attn_m2f_251113_201125/results/hr"
+    else "results_sr-to-hr/multipie/m2f/hr"
 )
 
 sr_paths_all = sorted(glob("%s/*.png" % SR_PATH))
@@ -94,22 +94,24 @@ while True:
         "ids": "%.3f" % (sum(ids_list) / len(ids_list)),
     }
 
-    os.makedirs("temp_%s/sr" % args.pose_group, exist_ok=True)
-    os.makedirs("temp_%s/hr" % args.pose_group, exist_ok=True)
+    os.makedirs("temp_%s_v1/sr" % args.pose_group, exist_ok=True)
+    os.makedirs("temp_%s_v1/hr" % args.pose_group, exist_ok=True)
 
     print("Copying the files to compute FID...")
     for idx, (sr_path, hr_path) in enumerate(zip(sr_paths, hr_paths)):
-        shutil.copyfile(sr_path, "temp_%s/sr/%s.png" % (args.pose_group, idx))
-        shutil.copyfile(hr_path, "temp_%s/hr/%s.png" % (args.pose_group, idx))
+        shutil.copyfile(sr_path, "temp_%s_v1/sr/%s.png" % (args.pose_group, idx))
+        shutil.copyfile(hr_path, "temp_%s_v1/hr/%s.png" % (args.pose_group, idx))
 
-    fid_score = get_fid("temp_%s/sr" % args.pose_group, "temp_%s/hr" % args.pose_group)
+    fid_score = get_fid(
+        "temp_%s_v1/sr" % args.pose_group, "temp_%s_v1/hr" % args.pose_group
+    )
     eval_result["fid"] = "%.2f" % fid_score
 
-    with open("./eval_v2_%s.txt" % args.pose_group, "a") as f:
+    with open("./eval_v1_%s.txt" % args.pose_group, "a") as f:
         f.write("[%s:%s]\n" % (start_idx, end_idx))
         f.write("\n".join(["%s=%s" % (k, v) for k, v in eval_result.items()]))
         f.write("\n")
 
     print("🍊", "\n".join(["%s=%s" % (k, v) for k, v in eval_result.items()]))
 
-    shutil.rmtree("temp_%s" % args.pose_group, ignore_errors=True)
+    shutil.rmtree("temp_%s_v1" % args.pose_group, ignore_errors=True)
